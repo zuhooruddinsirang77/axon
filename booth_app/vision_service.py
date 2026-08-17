@@ -100,7 +100,6 @@ class VisionService:
         with self._lock:
             return self._face_present
 
-
     def stop(self):
         self._running = False
         if self._thread:
