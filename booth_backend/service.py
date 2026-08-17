@@ -8,7 +8,7 @@ rendering all stay on the kiosk PC itself — they need physical hardware or
 have no key to steal, so there's nothing to gain by proxying them.
 
 Run:
-    uvicorn main:app --host 0.0.0.0 --port 8000
+    uvicorn service:booth_api --host 0.0.0.0 --port 8000
 """
 import io
 import os
@@ -32,7 +32,7 @@ GROQ_STT_MODEL = os.environ.get("AXON_STT_MODEL", "whisper-large-v3-turbo")
 GROQ_LLM_MODEL = os.environ.get("AXON_LLM_MODEL", "llama-3.3-70b-versatile")
 OPENAI_STT_MODEL = os.environ.get("AXON_OPENAI_STT_MODEL", "whisper-1")
 
-app = FastAPI(title="Axon Booth Backend")
+booth_api = FastAPI(title="Axon Booth Backend")
 
 openai_client = None
 elevenlabs_client = None
@@ -69,7 +69,7 @@ class IntentRequest(BaseModel):
     options: List[Tuple[str, str]]
 
 
-@app.get("/health")
+@booth_api.get("/health")
 def health():
     return {
         "status": "ok",
@@ -79,7 +79,7 @@ def health():
     }
 
 
-@app.post("/tts")
+@booth_api.post("/tts")
 def tts(req: TTSRequest, x_booth_key: Optional[str] = Header(None)):
     _check_auth(x_booth_key)
     if not elevenlabs_client:
@@ -96,7 +96,7 @@ def tts(req: TTSRequest, x_booth_key: Optional[str] = Header(None)):
         raise HTTPException(status_code=502, detail=f"ElevenLabs error: {e}")
 
 
-@app.post("/stt/groq")
+@booth_api.post("/stt/groq")
 async def stt_groq(file: UploadFile = File(...), x_booth_key: Optional[str] = Header(None)):
     _check_auth(x_booth_key)
     if not groq_client:
@@ -111,7 +111,7 @@ async def stt_groq(file: UploadFile = File(...), x_booth_key: Optional[str] = He
         raise HTTPException(status_code=502, detail=f"Groq STT error: {e}")
 
 
-@app.post("/stt/openai")
+@booth_api.post("/stt/openai")
 async def stt_openai(file: UploadFile = File(...), x_booth_key: Optional[str] = Header(None)):
     _check_auth(x_booth_key)
     if not openai_client:
@@ -126,7 +126,7 @@ async def stt_openai(file: UploadFile = File(...), x_booth_key: Optional[str] = 
         raise HTTPException(status_code=502, detail=f"OpenAI STT error: {e}")
 
 
-@app.post("/classify-intent")
+@booth_api.post("/classify-intent")
 def classify_intent(req: IntentRequest, x_booth_key: Optional[str] = Header(None)):
     _check_auth(x_booth_key)
     if not groq_client:

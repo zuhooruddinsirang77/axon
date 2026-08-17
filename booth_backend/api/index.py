@@ -1,14 +1,14 @@
 """
-Vercel entry point. Vercel's Python runtime auto-detects an ASGI/WSGI
-variable named `app` in any file under /api and serves it as a serverless
-function — the actual FastAPI app lives in ../service.py (named to avoid
-Vercel's own entrypoint auto-detection, which would otherwise flag both
-this file and main.py as ambiguous candidates). Runnable locally too via
-`uvicorn service:app` from the booth_backend directory.
+Vercel entry point. Vercel's Python runtime scans every .py file in the
+project for a variable literally named `app` (not just specially-named
+files), so the real FastAPI instance in ../service.py is named `booth_api`
+instead — this is the ONLY file in the project exporting `app`, which is
+what Vercel actually serves. Locally, run `uvicorn service:booth_api` from
+the booth_backend directory instead of importing this file.
 """
 import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from service import app  # noqa: E402
+from service import booth_api as app  # noqa: E402
