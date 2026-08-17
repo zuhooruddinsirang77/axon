@@ -577,7 +577,9 @@ class AudioService:
                 model=GROQ_LLM_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
-                max_tokens=8,
+                max_tokens=150,
+                reasoning_effort="low",
+                include_reasoning=False,
             )
             label = resp.choices[0].message.content.strip().strip('"').strip("'").lower()
             valid_labels = {l.lower() for l, _ in options}
