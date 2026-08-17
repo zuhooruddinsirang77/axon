@@ -148,6 +148,7 @@ class BoothApp:
         self.state = IDLE_VISION
         self.state_entered_at = time.time()
         self.face_hold_start = None
+        self._last_vision_debug = 0.0
         self._spoken_for_state = False
         self._listen_started = False
         self.pending_transcript = None
@@ -467,10 +468,17 @@ class BoothApp:
         # only talks after someone's already walked up isn't attracting
         # anyone; it should call people over.
         self.speak_once("welcome")
-        if self.vision.face_present():
+        present = self.vision.face_present()
+        now = time.time()
+        if now - self._last_vision_debug >= 1.0:
+            self._last_vision_debug = now
+            held = (now - self.face_hold_start) if self.face_hold_start else 0.0
+            print(f"[Vision] available={self.vision._available} face_present={present} "
+                  f"held={held:.1f}s/{config.FACE_DETECT_HOLD_TIME}s")
+        if present:
             if self.face_hold_start is None:
                 self.face_hold_start = time.time()
-            elif time.time() - self.face_hold_start >= config.FACE_DETECT_HOLD_TIME:
+            elif now - self.face_hold_start >= config.FACE_DETECT_HOLD_TIME:
                 self.goto(LANG_SELECT)
         else:
             self.face_hold_start = None
