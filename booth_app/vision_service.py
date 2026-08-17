@@ -46,6 +46,8 @@ class VisionService:
         self._available = False
 
     def start(self):
+        print(f"[VisionService] AXON_VISION_DEBUG env var = {os.environ.get('AXON_VISION_DEBUG')!r} "
+              f"-> debug snapshots {'ON' if _VISION_DEBUG else 'OFF'} ({_DEBUG_SNAPSHOT_PATH})")
         self._cap = cv2.VideoCapture(self._camera_index, cv2.CAP_DSHOW)
         self._available = self._cap is not None and self._cap.isOpened()
         if not self._available:
@@ -58,31 +60,39 @@ class VisionService:
 
     def _loop(self):
         while self._running:
-            ok, frame = self._cap.read()
-            if not ok:
-                time.sleep(0.1)
-                continue
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = self._face_cascade.detectMultiScale(
-                gray, scaleFactor=1.2, minNeighbors=5, minSize=(80, 80)
-            )
-            now = time.time()
-            with self._lock:
-                if len(faces) > 0:
-                    self._last_face_seen = now
-                self._face_present = (now - self._last_face_seen) < FACE_PRESENCE_GRACE
+            try:
+                self._tick()
+            except Exception as e:
+                print(f"[VisionService] _loop error (thread would otherwise die silently): {e}")
+                time.sleep(0.5)
 
-            if _VISION_DEBUG and (now - self._last_snapshot) > 1.0:
-                self._last_snapshot = now
-                debug_frame = frame.copy()
-                for (x, y, w, h) in faces:
-                    cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                cv2.putText(debug_frame, f"faces={len(faces)}", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                os.makedirs(config.TEMP_DIR, exist_ok=True)
-                cv2.imwrite(_DEBUG_SNAPSHOT_PATH, debug_frame)
+    def _tick(self):
+        ok, frame = self._cap.read()
+        if not ok:
+            time.sleep(0.1)
+            return
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = self._face_cascade.detectMultiScale(
+            gray, scaleFactor=1.2, minNeighbors=5, minSize=(80, 80)
+        )
+        now = time.time()
+        with self._lock:
+            if len(faces) > 0:
+                self._last_face_seen = now
+            self._face_present = (now - self._last_face_seen) < FACE_PRESENCE_GRACE
 
-            time.sleep(0.05)
+        if _VISION_DEBUG and (now - self._last_snapshot) > 1.0:
+            self._last_snapshot = now
+            debug_frame = frame.copy()
+            for (x, y, w, h) in faces:
+                cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(debug_frame, f"faces={len(faces)}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            os.makedirs(config.TEMP_DIR, exist_ok=True)
+            wrote = cv2.imwrite(_DEBUG_SNAPSHOT_PATH, debug_frame)
+            print(f"[VisionService] wrote debug snapshot: {wrote} -> {_DEBUG_SNAPSHOT_PATH}")
+
+        time.sleep(0.05)
 
     def face_present(self):
         if not self._available:
