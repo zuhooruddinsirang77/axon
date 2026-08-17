@@ -29,6 +29,7 @@ import theme
 from audio_service import AudioService
 from vision_service import VisionService
 
+
 # Must run before pygame opens a window: without this, Windows treats the
 # process as DPI-unaware and silently bitmap-stretches its rendered output
 # to fill the real panel whenever display scaling is above 100% (e.g. a
@@ -121,6 +122,7 @@ class BoothApp:
     def __init__(self):
         pygame.init()
         pygame.mixer.init()
+
         # `window` is the real OS surface (whatever size/DPI the monitor
         # actually is); `screen` is a fixed 1920x1080 canvas that every draw
         # method targets unchanged. Presenting scales+letterboxes `screen`
@@ -140,9 +142,17 @@ class BoothApp:
 
         self._load_assets()
 
+        self.audio = AudioService()
+
+        # Started last, after all other init work, on general principle
+        # (giving the camera's background read-thread a clean scheduling
+        # environment for its first frames) — on some hardware the capture
+        # can still intermittently come back corrupted (frames read
+        # "successfully" but near-blank) regardless of init order; see the
+        # self-healing reopen logic in VisionService._tick for the actual
+        # mitigation.
         self.vision = VisionService()
         self.vision.start()
-        self.audio = AudioService()
 
         self.language = config.DEFAULT_LANGUAGE
         self.state = IDLE_VISION

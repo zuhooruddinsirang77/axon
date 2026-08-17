@@ -1,0 +1,20 @@
+pygame 2.6.1 (SDL 2.28.4, Python 3.12.10)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+[AudioService] Microphone 'Microphone (HD Pro Webcam C920)' was found but could not be opened ([Errno -9999] Unanticipated host error) — voice input disabled, use the keypad/number keys instead. On Windows this is usually Settings > Privacy & security > Microphone > 'Let desktop apps access your microphone' being off, or another app holding the microphone exclusively.
+[AudioService] loading faster-whisper 'small' model...
+[VisionService] AXON_VISION_DEBUG env var = '1' -> debug snapshots ON (C:\Users\zuhoor\Downloads\AXON Assets-20260813T172616Z-1-001\booth_app\temp\vision_debug.jpg)
+[ WARN:0@1.418] global cap.cpp:344 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[VisionService] No webcam detected — face detection disabled, use SPACE to advance manually.
+[Vision] available=False face_present=False held=0.0s/1.5s
+[Vision] available=False face_present=False held=0.0s/1.5s
+[Vision] available=False face_present=False held=0.0s/1.5s
+[Vision] available=False face_present=False held=0.0s/1.5s
+[Vision] available=False face_present=False held=0.0s/1.5s
+[AudioService] faster-whisper ready.
+[Vision] available=False face_present=False held=0.0s/1.5s
+[Vision] available=False face_present=False held=0.0s/1.5s
+[Vision] available=False face_present=False held=0.0s/1.5s
+[Vision] available=False face_present=False held=0.0s/1.5s
+[Vision] available=False face_present=False held=0.0s/1.5s
+[Vision] available=False face_present=False held=0.0s/1.5s
+[Vision] available=False face_present=False held=0.0s/1.5s
