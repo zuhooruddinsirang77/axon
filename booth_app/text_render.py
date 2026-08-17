@@ -73,10 +73,3 @@ def wrap_lines(text, lang_code, size, max_width, bold=False):
     if current:
         lines.append(current)
     return lines or [text]
-
-
-def render_wrapped(text, lang_code, size, color, max_width, bold=False):
-    """Render `text` as a list of (surface, line) pairs, each individually
-    shaped and width-limited to `max_width`."""
-    lines = wrap_lines(text, lang_code, size, max_width, bold=bold)
-    return [render(line, lang_code, size, color, bold=bold) for line in lines]

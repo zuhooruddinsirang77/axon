@@ -90,6 +90,33 @@ def load_asset(filename, size=None, mode="contain"):
         return out
 
 
+class _SpeechWait:
+    """Waits for a just-triggered line to actually finish playing before
+    starting a hold countdown — not just "not speaking *yet*", which a
+    fixed timer from state-entry can't tell apart from "already finished",
+    cutting a line off mid-sentence in a slower language/voice. A safety
+    cap guards against getting stuck if TTS never starts at all (e.g. every
+    engine fails)."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self._started_at = time.time()
+        self._seen_speaking = False
+        self.finished_at = None
+
+    def ready(self, is_speaking, hold_seconds, safety_seconds=15.0):
+        if is_speaking:
+            self._seen_speaking = True
+        elif self._seen_speaking and self.finished_at is None:
+            self.finished_at = time.time()
+
+        if self.finished_at is not None and time.time() - self.finished_at > hold_seconds:
+            return True
+        return time.time() - self._started_at > safety_seconds
+
+
 class BoothApp:
     def __init__(self):
         pygame.init()
@@ -140,6 +167,8 @@ class BoothApp:
         self._TRANSITION_DURATION = 0.25
 
         self.hiding_choice = None
+        self._hiding_reveal_wait = _SpeechWait()
+        self._handoff_wait = _SpeechWait()
         self.myth_answer = None
         self.wheel_spinning = False
         self.wheel_angle = 0.0
@@ -190,22 +219,38 @@ class BoothApp:
         self.bg_gradient = theme.vertical_gradient(
             (c.WIDTH, c.HEIGHT), c.BG_COLOR_TOP, c.BG_COLOR_BOTTOM
         )
-        # Bake the ambient texture + edge darkening into the static
-        # background once at load time rather than compositing extra
-        # full-screen layers every frame.
-        self.bg_gradient.blit(theme.tech_grid((c.WIDTH, c.HEIGHT), c.ACCENT_COLOR), (0, 0))
+        # Bake two large, soft, asymmetric color washes into the static
+        # background — reads as stage lighting on a dark surface, unlike a
+        # dot/circuit grid (generic "tech dashboard" texture) or a
+        # perfectly even glow. Baked once at load time, not composited
+        # fresh every frame.
+        wash_a = theme.radial_glow(620, c.ACCENT_GREEN, max_alpha=22)
+        self.bg_gradient.blit(wash_a, wash_a.get_rect(center=(int(c.WIDTH * 0.86), int(c.HEIGHT * 0.08))))
+        wash_b = theme.radial_glow(560, c.ACCENT_COLOR_2, max_alpha=20)
+        self.bg_gradient.blit(wash_b, wash_b.get_rect(center=(int(c.WIDTH * 0.06), int(c.HEIGHT * 0.92))))
         self.bg_gradient.blit(theme.vignette((c.WIDTH, c.HEIGHT), max_alpha=150), (0, 0))
 
         self.glow_accent = theme.radial_glow(420, c.ACCENT_COLOR, max_alpha=40)
         self.glow_accent2 = theme.radial_glow(360, c.ACCENT_COLOR_2, max_alpha=32)
 
         # Brand chrome: gradient logo ring (mirrors the mascot's glowing
-        # eye visor) and the hairline that separates header/footer bars
-        # from the content area.
+        # eye visor), a gradient-filled wordmark (the same headline
+        # treatment used for titles), and the hairline that separates the
+        # header/footer bars from the content area.
         self.logo_ring = theme.conic_ring(56, c.BRAND_GRADIENT, thickness=7)
-        self.brand_hline = theme.horizontal_gradient_surface((c.WIDTH, 3), c.BRAND_GRADIENT)
+        wordmark_mask = self.font_wordmark.render("AXON", True, (255, 255, 255))
+        self.wordmark_surf = theme.gradient_text(wordmark_mask, c.BRAND_GRADIENT)
+        self.brand_hline = theme.horizontal_gradient_surface((c.WIDTH, 2), c.BRAND_GRADIENT)
         self.header_h = 100
         self.footer_h = 44
+
+        # Idle hero's stage shadow — grounds the mascot on a surface
+        # instead of leaving it floating in a void.
+        self.idle_shadow = theme.soft_ellipse((520, 130), (0, 0, 0), max_alpha=130)
+
+        # Gradient-filled titles are rebuilt only when the text/language
+        # changes, not every frame — see _build_title().
+        self._title_cache = {}
 
     # ------------------------------------------------------------------
     # State transition helper
@@ -235,6 +280,8 @@ class BoothApp:
             self.myth_answer = None
             self.wheel_spinning = False
             self.wheel_result_index = None
+        elif new_state == HUMAN_HANDOFF:
+            self._handoff_wait.reset()
 
     def speak_once(self, key):
         """Speak the localized string for `key` exactly once per state entry."""
@@ -357,6 +404,7 @@ class BoothApp:
         elif self.state == GAME_HIDING:
             if 1 <= n <= 6 and self.hiding_choice is None:
                 self.hiding_choice = n - 1
+                self._hiding_reveal_wait.reset()
                 self.audio.speak(config.t(self.language, "reveal_pitch"), self.language,
                                   generation=self._speech_generation)
 
@@ -413,6 +461,11 @@ class BoothApp:
                 self._apply_intent(state, label)
 
     def _update_idle(self):
+        # Speak the invitation immediately on entering idle — on app start
+        # and every time the booth returns here after a round — instead of
+        # waiting silently for a face to already be in frame. A booth that
+        # only talks after someone's already walked up isn't attracting
+        # anyone; it should call people over.
         self.speak_once("welcome")
         if self.vision.face_present():
             if self.face_hold_start is None:
@@ -434,9 +487,8 @@ class BoothApp:
         self.speak_once("hiding_prompt")
         if self.hiding_choice is None:
             self.start_listening_once()
-        else:
-            if time.time() - self.state_entered_at > 6.0:
-                self.goto(HUMAN_HANDOFF)
+        elif self._hiding_reveal_wait.ready(self.audio.is_speaking, config.HIDING_REVEAL_HOLD):
+            self.goto(HUMAN_HANDOFF)
 
     def _update_game_wheel(self, dt):
         self.speak_once("wheel_prompt")
@@ -454,7 +506,7 @@ class BoothApp:
 
     def _update_handoff(self):
         self.speak_once("handoff_audio")
-        if time.time() - self.state_entered_at >= config.HANDOFF_TIMEOUT:
+        if self._handoff_wait.ready(self.audio.is_speaking, config.HANDOFF_TIMEOUT):
             self.goto(IDLE_VISION)
 
     def _process_transcript(self, transcript):
@@ -578,7 +630,6 @@ class BoothApp:
             self._draw_type_hint()
 
         self._draw_footer()
-        theme.draw_corner_frame(self.screen, (config.WIDTH, config.HEIGHT), config.BRAND_GRADIENT)
 
         self._apply_transition()
         self._present()
@@ -631,6 +682,10 @@ class BoothApp:
         pygame.display.flip()
 
     def _draw_header(self):
+        """Minimal editorial chrome: a gradient-filled wordmark and plain
+        dot-plus-label status/language readouts — no boxed pill chips,
+        which is exactly the "dashboard template" look this pass moved
+        away from."""
         header_h = self.header_h
         bar = pygame.Surface((config.WIDTH, header_h), pygame.SRCALPHA)
         pygame.draw.rect(bar, (8, 9, 15, 205), (0, 0, config.WIDTH, header_h))
@@ -642,38 +697,27 @@ class BoothApp:
         pygame.draw.circle(self.screen, (8, 9, 15), ring_rect.center, 21)
         pygame.draw.circle(self.screen, config.ACCENT_COLOR, ring_rect.center, 5)
 
-        logo = self.font_wordmark.render("AXON", True, config.TEXT_COLOR)
-        logo_pos = (ring_rect.right + 20, mid_y - logo.get_height() // 2)
-        self.screen.blit(logo, logo_pos)
+        logo_pos = (ring_rect.right + 20, mid_y - self.wordmark_surf.get_height() // 2)
+        self.screen.blit(self.wordmark_surf, logo_pos)
 
-        tag_rect = pygame.Rect(0, 0, 128, 32)
-        tag_rect.midleft = (logo_pos[0] + logo.get_width() + 18, mid_y)
-        theme.draw_pill(self.screen, tag_rect, (17, 20, 33), alpha=235, border=config.CARD_BORDER_COLOR)
-        tag = self.font_small.render("AI BOOTH", True, config.DIM_TEXT_COLOR)
-        self.screen.blit(tag, tag.get_rect(center=tag_rect.center))
+        tag = self.font_small.render("AI Booth", True, config.DIM_TEXT_COLOR)
+        self.screen.blit(tag, (logo_pos[0] + self.wordmark_surf.get_width() + 18,
+                                mid_y - tag.get_height() // 2))
 
         if self.text_input_active:
-            self._draw_status_pill("Typing…", config.ACCENT_COLOR_2, config.WIDTH - 40, mid_y)
+            self._draw_status("Typing…", config.ACCENT_COLOR_2, config.WIDTH - 40, mid_y)
         elif self.listening:
-            self._draw_status_pill("Listening…", config.ACCENT_GREEN, config.WIDTH - 40, mid_y)
+            self._draw_status("Listening…", config.ACCENT_GREEN, config.WIDTH - 40, mid_y)
         elif self.audio.is_speaking:
-            self._draw_status_pill("Speaking…", config.ACCENT_COLOR, config.WIDTH - 40, mid_y)
+            self._draw_status("Speaking…", config.ACCENT_COLOR, config.WIDTH - 40, mid_y)
         else:
-            idle_rect = pygame.Rect(0, 0, 172, 32)
-            idle_rect.midright = (config.WIDTH - 40, mid_y)
-            theme.draw_pill(self.screen, idle_rect, (17, 20, 33), alpha=220, border=config.CARD_BORDER_COLOR)
-            pygame.draw.circle(self.screen, (90, 96, 116), (idle_rect.x + 22, idle_rect.centery), 5)
-            idle_label = self.font_small.render("Standing by", True, config.DIM_TEXT_COLOR)
-            self.screen.blit(idle_label, (idle_rect.x + 38, idle_rect.centery - idle_label.get_height() // 2))
+            self._draw_status("Standing by", (100, 106, 126), config.WIDTH - 40, mid_y, pulse=False)
 
         lang_label = next(
             (l["label"] for l in config.LANGUAGES if l["code"] == self.language), "English"
         )
-        lang_text = self.font_small.render(lang_label.upper(), True, config.DIM_TEXT_COLOR)
-        pill_rect = pygame.Rect(0, 0, lang_text.get_width() + 60, 32)
-        pill_rect.midright = (config.WIDTH - 232, mid_y)
-        theme.draw_pill(self.screen, pill_rect, (17, 20, 33), alpha=220, border=config.CARD_BORDER_COLOR)
-        self.screen.blit(lang_text, lang_text.get_rect(center=pill_rect.center))
+        lang_text = self.font_small.render(lang_label, True, config.DIM_TEXT_COLOR)
+        self.screen.blit(lang_text, lang_text.get_rect(midright=(config.WIDTH - 210, mid_y)))
 
         self.screen.blit(self.brand_hline, (0, header_h - 3))
 
@@ -685,44 +729,75 @@ class BoothApp:
         self.screen.blit(bar, (0, y))
         self.screen.blit(self.brand_hline, (0, y))
 
-    def _draw_status_pill(self, label, color, right_x, y):
-        """Animated 'Listening…' / 'Speaking…' pill — replaces the old tiny
-        static header dot so visitors get real feedback about when the
-        booth is hearing them vs. talking."""
-        pulse = 0.55 + 0.45 * (0.5 + 0.5 * math.sin(time.time() * 6.0))
-        text_surf = self.font_small.render(label, True, color)
-        pill_rect = pygame.Rect(0, 0, text_surf.get_width() + 54, 34)
-        pill_rect.midright = (right_x, y)
-        dot_pos = (pill_rect.x + 24, pill_rect.centery)
-        glow = theme.radial_glow(30, color, max_alpha=int(140 * pulse))
-        self.screen.blit(glow, glow.get_rect(center=dot_pos))
-        theme.draw_pill(self.screen, pill_rect, (30, 34, 54), alpha=225, border=color)
+    def _draw_status(self, label, color, right_x, y, pulse=True):
+        """Plain dot + label readout — real feedback about whether the
+        booth is listening/speaking, without boxing it in a pill chip."""
+        text_surf = self.font_small.render(label, True, config.DIM_TEXT_COLOR)
+        dot_pos = (right_x - text_surf.get_width() - 18, y)
+        if pulse:
+            amt = 0.55 + 0.45 * (0.5 + 0.5 * math.sin(time.time() * 6.0))
+            glow = theme.radial_glow(24, color, max_alpha=int(150 * amt))
+            self.screen.blit(glow, glow.get_rect(center=dot_pos))
         pygame.draw.circle(self.screen, color, dot_pos, 5)
-        self.screen.blit(text_surf, (dot_pos[0] + 16, pill_rect.centery - text_surf.get_height() // 2))
+        self.screen.blit(text_surf, (dot_pos[0] + 14, y - text_surf.get_height() // 2))
 
-    def _draw_title(self, text, color=None, subtitle=None):
-        """Titles are long in some languages and the canvas width is fixed,
-        so wrap onto multiple lines rather than let text run off both
-        edges — the block is anchored so a single-line title still lands
-        exactly where it always has."""
+    def _build_title(self, text):
+        """Build (and cache) the gradient-filled, wrapped title block for
+        `text` in the current language. Titles are redrawn every frame but
+        rarely change, and building gradient-filled text involves a
+        per-pixel gradient surface — worth caching rather than rebuilding
+        60 times a second for text that's been on screen, unchanged, for
+        the last several seconds.
+
+        One shared gradient (sized to the wrap width) is sliced per line
+        at that line's centered position, rather than each line getting
+        its own independent full green->purple sweep — otherwise a short
+        second line (e.g. "over 30%?") cycles through the whole brand
+        gradient in a few characters while the long first line stretches
+        it out, and the two lines visibly disagree on color pacing.
+        """
+        key = (text, self.language)
+        cached = self._title_cache.get(key)
+        if cached is not None:
+            return cached
+
         max_width = config.WIDTH - 220
         lines = text_render.wrap_lines(text, self.language, config.FONT_TITLE_SIZE,
                                         max_width, bold=True)
         font = text_render.get_font(config.FONT_TITLE_SIZE, self.language, bold=True)
         line_h = font.get_linesize()
+        full_grad = theme.horizontal_gradient_surface((max_width, line_h), config.BRAND_GRADIENT)
+
+        surfaces = []
+        for line in lines:
+            mask = font.render(text_render.shape(line, self.language), True, (255, 255, 255))
+            lw, lh = mask.get_size()
+            x_off = max(0, (max_width - lw) // 2)
+            slice_ = full_grad.subsurface((x_off, 0, lw, line_h)).copy()
+            slice_.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+            surfaces.append(slice_)
+
+        result = (surfaces, line_h)
+        self._title_cache[key] = result
+        return result
+
+    def _draw_title(self, text, subtitle=None):
+        """Headlines are filled with the brand gradient (the mascot's own
+        ring-glow) instead of flat white or a single accent color — the
+        one typographic move that makes every screen read as branded type
+        rather than generic dark-UI text."""
+        surfaces, line_h = self._build_title(text)
         # Single-line titles stay anchored where they've always sat;
         # multi-line ones grow downward from just under the header instead
         # of upward into it.
-        if len(lines) == 1:
+        if len(surfaces) == 1:
             first_center = 158
         else:
             first_center = self.header_h + 20 + line_h // 2
-        for i, line in enumerate(lines):
-            surf = text_render.render(line, self.language, config.FONT_TITLE_SIZE,
-                                       color or config.TEXT_COLOR, bold=True)
+        for i, surf in enumerate(surfaces):
             self.screen.blit(surf, surf.get_rect(center=(config.WIDTH // 2, first_center + i * line_h)))
         if subtitle:
-            sub_y = first_center + (len(lines) - 1) * line_h + line_h // 2 + 26
+            sub_y = first_center + (len(surfaces) - 1) * line_h + line_h // 2 + 26
             sub_surf = self.font_small.render(subtitle, True, config.DIM_TEXT_COLOR)
             self.screen.blit(sub_surf, sub_surf.get_rect(center=(config.WIDTH // 2, sub_y)))
 
@@ -738,11 +813,9 @@ class BoothApp:
         self.screen.blit(mascot_img, (mascot_x, mascot_y))
 
         y = list_top
-        n = len(items)
         for i, text in enumerate(items, start=1):
             card = pygame.Rect(140, y, card_w, card_h)
-            accent = theme.brand_color((i - 1) / max(n, 1), config.BRAND_GRADIENT)
-            theme.draw_card(self.screen, card, radius=20, fill=config.CARD_FILL, accent_bar=accent)
+            theme.draw_card(self.screen, card, radius=20, fill=config.CARD_FILL)
             badge_center = (card.x + 66, card.centery)
             theme.draw_badge(self.screen, badge_center, 28, i, self.font_card,
                               ring_stops=config.BRAND_GRADIENT)
@@ -756,25 +829,6 @@ class BoothApp:
         self._draw_title(config.t(self.language, "idle_banner"))
 
         t = time.time()
-        # Two slow concentric rainbow rings breathing outward behind the
-        # mascot — reads as "alive" and draws the eye from across a hall,
-        # rather than a static portrait nobody's sure is actually running.
-        # Radius is quantized so `conic_ring` (cached, ~140 polygon draws
-        # to build) is actually reused frame-to-frame instead of rebuilt
-        # every frame as a continuously-changing size would force; alpha is
-        # applied to the cached surface directly (no per-frame copy — a
-        # large SRCALPHA surface copy every frame was the previous cost
-        # here, and blit area/count is the other lever, hence 2 rings
-        # capped at a smaller max radius rather than 3 growing larger).
-        for k in range(2):
-            phase = (t * 0.18 + k / 2) % 1.0
-            radius = int(round((200 + phase * 200) / 6) * 6)
-            alpha = int(90 * (1 - phase))
-            if alpha <= 0:
-                continue
-            ring = theme.conic_ring(radius * 2, config.BRAND_GRADIENT, thickness=3)
-            ring.set_alpha(alpha)
-            self.screen.blit(ring, ring.get_rect(center=(cx, cy - 60)))
 
         # Subtle breathing/bob so the booth reads as "alive" while idle —
         # picks a precomputed frame instead of scaling live every frame.
@@ -783,26 +837,39 @@ class BoothApp:
         bob = math.sin(t * 1.6) * 10
         h = self.img_axon_mischievous.get_height()
         cy2 = config.HEIGHT // 2 - 100 + h // 2
+
+        # A soft shadow grounds the mascot on a "stage" instead of it
+        # floating in a void, and breathes in step with the bob so the
+        # contact point still reads as physical.
+        shadow_y = cy2 + scaled.get_height() // 2 - 20 + bob * 0.3
+        # set_alpha() on the cached surface is O(1) (no pixel copy) — safe
+        # to call every frame, unlike duplicating the surface would be.
+        self.idle_shadow.set_alpha(int(130 * (0.85 + 0.15 * math.sin(t * 1.6))))
+        self.screen.blit(self.idle_shadow, self.idle_shadow.get_rect(center=(cx, shadow_y)))
+
         self.screen.blit(scaled, (cx - scaled.get_width() // 2, cy2 - scaled.get_height() // 2 + bob))
 
-        self._draw_cta_pill("STEP FORWARD TO BEGIN", cx, config.HEIGHT - 140)
+        self._draw_cta_button("Step forward to begin", cx, config.HEIGHT - 140)
         hint = self.font_small.render("Axon is watching  •  ESC resets anytime", True, config.DIM_TEXT_COLOR)
         self.screen.blit(hint, hint.get_rect(center=(cx, config.HEIGHT - 68)))
 
-    def _draw_cta_pill(self, label, cx, cy):
-        """Pulsing gradient-ringed call-to-action — the one thing on the
-        idle screen a visitor across the aisle should be able to read."""
-        pulse = 0.55 + 0.45 * (0.5 + 0.5 * math.sin(time.time() * 2.4))
-        text_surf = self.font_subtitle.render(label, True, config.TEXT_COLOR)
-        pill_rect = pygame.Rect(0, 0, text_surf.get_width() + 76, 66)
+    def _draw_cta_button(self, label, cx, cy):
+        """A solid brand-gradient button — the one thing on the idle screen
+        a visitor across the aisle should be able to read. Filled, not
+        outlined: an outlined pill on a dark screen reads as a ghost
+        button; a solid gradient fill is unmissable."""
+        text_surf = self.font_subtitle.render(label, True, (10, 11, 18))
+        pill_rect = pygame.Rect(0, 0, text_surf.get_width() + 84, 68)
         pill_rect.center = (cx, cy)
-        # Alpha quantized to steps of 5 so the cached radial_glow surface
-        # is actually reused across frames instead of rebuilt continuously.
-        glow_alpha = int(70 * pulse) // 5 * 5
-        glow = theme.radial_glow(int(pill_rect.width * 0.7), config.ACCENT_COLOR, max_alpha=glow_alpha)
+
+        pulse = 0.55 + 0.45 * (0.5 + 0.5 * math.sin(time.time() * 2.4))
+        glow_alpha = int(80 * pulse) // 5 * 5
+        glow = theme.radial_glow(int(pill_rect.width * 0.75), config.ACCENT_COLOR, max_alpha=glow_alpha)
         self.screen.blit(glow, glow.get_rect(center=pill_rect.center))
-        theme.draw_card(self.screen, pill_rect, radius=33, fill=(16, 19, 32),
-                         glow_border=config.ACCENT_COLOR, border_width=2, shadow=True)
+
+        theme.blit_shadow(self.screen, pill_rect, radius=34, spread=18)
+        button = theme.gradient_button(pill_rect.size, config.BRAND_GRADIENT, 34)
+        self.screen.blit(button, pill_rect)
         self.screen.blit(text_surf, text_surf.get_rect(center=pill_rect.center))
 
     def _draw_lang_select(self):
@@ -824,8 +891,7 @@ class BoothApp:
     def _draw_game_hiding(self):
         revealed = self.hiding_choice is not None
         title_key = "hiding_reveal_title" if revealed else "hiding_title"
-        self._draw_title(config.t(self.language, title_key),
-                          config.ACCENT_COLOR if revealed else None)
+        self._draw_title(config.t(self.language, title_key))
 
         for i, b in enumerate(self.buildings):
             pos = self.grid_positions[i]
@@ -943,12 +1009,20 @@ class BoothApp:
 
     def _draw_handoff(self):
         self._draw_ambient_glow((config.WIDTH // 2, 550))
-        self._draw_title(config.t(self.language, "handoff_banner"), config.ACCENT_COLOR,
+        self._draw_title(config.t(self.language, "handoff_banner"),
                           subtitle="Resetting in a few seconds…")
         self.screen.blit(self.img_axon_jumping, (config.WIDTH // 2 - 160, 400))
+        # The ring only starts depleting once the handoff line has actually
+        # finished playing (mirrors _handoff_wait in _update_handoff) —
+        # shown full/paused while still speaking, rather than ticking down
+        # on a fixed timer that could hit zero mid-sentence.
+        if self._handoff_wait.finished_at is not None:
+            elapsed = time.time() - self._handoff_wait.finished_at
+        else:
+            elapsed = 0.0
         self._draw_countdown_ring(
             center=(config.WIDTH // 2, 940), radius=34,
-            elapsed=time.time() - self.state_entered_at, duration=config.HANDOFF_TIMEOUT,
+            elapsed=elapsed, duration=config.HANDOFF_TIMEOUT,
         )
 
     def _draw_countdown_ring(self, center, radius, elapsed, duration):

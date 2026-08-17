@@ -1,10 +1,12 @@
 """
-Small set of drawing helpers that give the booth a consistent, "designed"
-look — soft card shadows, gradients, rounded-corner image masking, badges,
-brand-gradient rings/frames — instead of flat single-color rectangles
-everywhere. The brand mascot's signature look (neon green->cyan->blue->
-purple ring glow on near-black) is reused throughout via `brand_color()`
-and `conic_ring()` so every accent in the booth reads as one family.
+Drawing helpers that give the booth a consistent, premium "designed" look —
+soft shadows, glass-style gradient panels, gradient-filled headline type,
+gradient rings and buttons — instead of flat single-color rectangles and
+generic dashboard chrome (grid textures, HUD corner brackets, pill-boxed
+labels). The brand mascot's signature look (neon green->cyan->blue->purple
+ring glow on near-black) is reused throughout via `brand_color()`,
+`conic_ring()` and `gradient_text()` so every accent and headline in the
+booth reads as one family, not a template with a color swapped in.
 """
 import math
 
@@ -117,42 +119,6 @@ def vignette(size, max_alpha=150):
     return surf
 
 
-_grid_cache = {}
-
-
-def tech_grid(size, color, spacing=64, alpha=14):
-    """Faint dot grid for ambient texture — reads as "designed tech
-    surface" instead of a flat void behind the content."""
-    key = (size, color, spacing, alpha)
-    cached = _grid_cache.get(key)
-    if cached is not None:
-        return cached
-    w, h = size
-    surf = pygame.Surface(size, pygame.SRCALPHA)
-    for gy in range(0, h, spacing):
-        for gx in range(0, w, spacing):
-            pygame.draw.circle(surf, (*color, alpha), (gx, gy), 1)
-    _grid_cache[key] = surf
-    return surf
-
-
-def draw_corner_frame(surface, size, stops, margin=28, arm=64, thickness=3):
-    """Four HUD-style corner brackets in the brand gradient — the kind of
-    framing device that reads as "built for a stage/booth display" rather
-    than a plain rectangle of content floating on a background."""
-    w, h = size
-    corners = [
-        ((margin, margin), (1, 1), 0.02),
-        ((w - margin, margin), (-1, 1), 0.27),
-        ((margin, h - margin), (1, -1), 0.52),
-        ((w - margin, h - margin), (-1, -1), 0.77),
-    ]
-    for (ox, oy), (sx, sy), t in corners:
-        color = brand_color(t, stops)
-        pygame.draw.line(surface, color, (ox, oy), (ox + arm * sx, oy), thickness)
-        pygame.draw.line(surface, color, (ox, oy), (ox, oy + arm * sy), thickness)
-
-
 _glow_cache = {}
 
 
@@ -197,6 +163,76 @@ def round_corners(surface, radius):
     return out
 
 
+def gradient_text(text_surf, stops):
+    """Recolor a rendered text surface (white glyphs, transparent elsewhere)
+    with a left-to-right brand gradient — the signature move that makes a
+    headline read as *this brand's* type instead of generic white-on-dark
+    UI text. Same alpha-mask trick as `round_corners`: multiplying a solid
+    gradient by the glyph mask keeps the gradient's color everywhere the
+    glyph is opaque and drops to transparent everywhere it isn't, edges
+    included since antialiased pixels carry partial alpha."""
+    w, h = text_surf.get_size()
+    grad = horizontal_gradient_surface((max(w, 1), max(h, 1)), stops)
+    grad.blit(text_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    return grad
+
+
+_panel_cache = {}
+
+
+def glass_panel(size, radius, top_color, bottom_color, top_alpha=255, bottom_alpha=255):
+    """A soft vertical-gradient rounded panel — reads as a lit glass/card
+    surface rather than a flat color swatch. Cached since card sizes repeat
+    across a screen."""
+    key = (size, radius, top_color, bottom_color, top_alpha, bottom_alpha)
+    cached = _panel_cache.get(key)
+    if cached is not None:
+        return cached
+    w, h = size
+    surf = pygame.Surface(size, pygame.SRCALPHA)
+    for y in range(h):
+        t = y / max(h - 1, 1)
+        color = tuple(int(top_color[i] + (bottom_color[i] - top_color[i]) * t) for i in range(3))
+        a = int(top_alpha + (bottom_alpha - top_alpha) * t)
+        pygame.draw.line(surf, (*color, a), (0, y), (w, y))
+    out = round_corners(surf, radius)
+    _panel_cache[key] = out
+    return out
+
+
+_button_cache = {}
+
+
+def gradient_button(size, stops, radius):
+    """A solid brand-gradient pill/rounded-rect fill — for the one or two
+    moments per screen that should read as an unmissable, premium action
+    rather than an outlined box."""
+    key = (size, tuple(stops), radius)
+    cached = _button_cache.get(key)
+    if cached is not None:
+        return cached
+    grad = horizontal_gradient_surface(size, stops)
+    out = round_corners(grad, radius)
+    _button_cache[key] = out
+    return out
+
+
+_ellipse_cache = {}
+
+
+def soft_ellipse(size, color=(0, 0, 0), max_alpha=120):
+    """A soft blurred ellipse — grounds a floating character/object on a
+    surface (a stage shadow) instead of it hanging in a void."""
+    key = (size, color, max_alpha)
+    cached = _ellipse_cache.get(key)
+    if cached is not None:
+        return cached
+    circle = radial_glow(max(size), color, max_alpha)
+    out = pygame.transform.smoothscale(circle, size)
+    _ellipse_cache[key] = out
+    return out
+
+
 def make_shadow(size, radius=16, color=(0, 0, 0), max_alpha=110, spread=20):
     """Precompute a soft drop-shadow surface sized to fit `size` + spread margin."""
     w, h = size
@@ -223,23 +259,26 @@ def blit_shadow(surface, rect, radius=16, spread=20, offset=(0, 10)):
     surface.blit(shadow_surf, (rect.x - spread + offset[0], rect.y - spread + offset[1]))
 
 
-def draw_card(surface, rect, radius=16, fill=(22, 26, 42), border=(70, 82, 116),
-              border_width=2, shadow=True, top_highlight=True, glow_border=None,
-              accent_bar=None):
+def draw_card(surface, rect, radius=16, fill=(22, 26, 42), fill_bottom=None,
+              border=(70, 82, 116), border_width=2, shadow=True, specular=True,
+              glow_border=None):
+    """A glass-style panel: soft vertical gradient fill (reads as a lit
+    surface, not a flat swatch) plus a small soft highlight blob near the
+    top-left corner, like light catching an edge — instead of a uniform
+    translucent band across the whole top half."""
     if shadow:
         blit_shadow(surface, rect, radius=radius)
-    pygame.draw.rect(surface, fill, rect, border_radius=radius)
-    if top_highlight:
-        hl = pygame.Surface((rect.width, rect.height // 2), pygame.SRCALPHA)
-        pygame.draw.rect(hl, (255, 255, 255, 12), (0, 0, rect.width, rect.height // 2),
-                          border_top_left_radius=radius, border_top_right_radius=radius)
-        surface.blit(hl, (rect.x, rect.y))
-    if accent_bar:
-        # A slim brand-colored spine down the left edge — gives each card
-        # its own identity without redrawing the whole border in color.
-        bar = pygame.Surface((5, rect.height - 20), pygame.SRCALPHA)
-        pygame.draw.rect(bar, accent_bar, (0, 0, 5, rect.height - 20), border_radius=3)
-        surface.blit(bar, (rect.x + 10, rect.y + 10))
+    bottom = fill_bottom or tuple(max(0, c - 10) for c in fill)
+    panel = glass_panel((rect.width, rect.height), radius, fill, bottom)
+    surface.blit(panel, (rect.x, rect.y))
+    if specular:
+        # Plain alpha blit, not BLEND_RGBA_ADD: `radial_glow` stores flat
+        # white RGB and puts its falloff entirely in the alpha channel, and
+        # ADD ignores source alpha for the RGB channels — it was painting a
+        # hard-edged solid white disc instead of a soft highlight.
+        glow = radial_glow(int(rect.height * 0.85), (255, 255, 255), max_alpha=15)
+        spot = (rect.x + int(rect.width * 0.2), rect.y + int(rect.height * 0.18))
+        surface.blit(glow, glow.get_rect(center=spot))
     if glow_border:
         pygame.draw.rect(surface, glow_border, rect, border_width + 1, border_radius=radius)
     elif border_width:

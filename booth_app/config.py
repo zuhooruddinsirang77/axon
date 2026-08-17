@@ -165,22 +165,22 @@ STRINGS = {
         "handoff_audio": "Turn around and speak to our representatives right here to get started!",
     },
     "ur": {
-        "idle_banner": "ایکسن کے ساتھ بات چیت کے لیے آگے آئیں!",
-        "welcome": "ہیلو! میں ایکسن ہوں۔ ہمارے بوتھ میں خوش آمدید۔",
+        "idle_banner": "ایکسن سے گفتگو کے لیے قریب تشریف لائیں!",
+        "welcome": "خوش آمدید! میں ایکسن ہوں، اس بوتھ میں آپ کا استقبال ہے۔ ہماری اے آئی آزمانے کے لیے قریب تشریف لائیں!",
         "lang_prompt": "آپ کون سی زبان بولتے ہیں؟",
-        "game_menu_prompt": "چھپنے کے کھیل کے لیے 1، خرافات کوئز کے لیے 2، یا انعامی پہیے کے لیے 3 کہیں!",
-        "game_menu_title": "اپنا AI چیلنج منتخب کریں",
-        "hiding_prompt": "1 سے 6 تک کوئی نمبر چنیں!",
-        "hiding_title": "اندازہ لگائیں ایکسن کہاں چھپا ہے!",
-        "hiding_reveal_title": "سرپرائز! ہم ہر صنعت میں موجود ہیں!",
-        "reveal_pitch": "سرپرائز! ہم تمام صنعتوں کے پیچھے ہیں کیونکہ ہمارا AI ہر شعبے کو طاقت دیتا ہے۔",
-        "myth_question": "درست یا غلط: AI لاجسٹکس روٹنگ لاگت میں 30% سے زیادہ کمی لا سکتا ہے؟",
-        "myth_true_reaction": "درست! AI روٹنگ لاگت میں نمایاں کمی لا سکتا ہے۔",
-        "myth_false_reaction": "دراصل، یہ درست ہے!",
-        "wheel_prompt": "انعام کے لیے مائیک میں 'اسپن دی ویل' بولیں!",
+        "game_menu_prompt": "چھپن چھپائی کے کھیل کے لیے 1، اے آئی سوالنامے کے لیے 2، یا انعامی پہیہ گھمانے کے لیے 3 کہیں!",
+        "game_menu_title": "اپنا اے آئی مقابلہ منتخب کریں",
+        "hiding_prompt": "میں کس عمارت میں چھپا ہوں؟ اندازہ لگانے کے لیے 1 سے 6 تک کوئی نمبر چنیں!",
+        "hiding_title": "اندازہ لگائیں کہ ایکسن کس صنعت میں چھپا ہے!",
+        "hiding_reveal_title": "حیرت انگیز! ہم ہر صنعت میں موجود ہیں!",
+        "reveal_pitch": "دلچسپ بات یہ ہے کہ ہم تمام صنعتوں میں موجود ہیں، کیونکہ ہماری اے آئی ہر شعبے کو طاقت دیتی ہے۔ مزید معلومات کے لیے ہماری ٹیم سے یہیں گفتگو کریں!",
+        "myth_question": "درست یا غلط: اے آئی لاجسٹکس روٹنگ کی لاگت میں 30 فیصد سے زیادہ کمی لا سکتی ہے؟",
+        "myth_true_reaction": "درست! اے آئی پر مبنی روٹنگ لاگت میں نمایاں کمی لا سکتی ہے۔",
+        "myth_false_reaction": "دراصل، یہ بات درست ہے۔ اے آئی پر مبنی روٹنگ واقعی اتنی لاگت کم کر سکتی ہے!",
+        "wheel_prompt": "اپنا انعام حاصل کرنے کے لیے مائیک میں 'پہیہ گھمائیں' کہیں!",
         "wheel_title": "انعامی پہیہ گھمائیں!",
-        "handoff_banner": "ہماری ٹیم سے یہاں بات کریں!",
-        "handoff_audio": "شروع کرنے کے لیے مڑیں اور ہمارے نمائندوں سے بات کریں۔",
+        "handoff_banner": "ہماری ٹیم سے یہیں گفتگو کریں!",
+        "handoff_audio": "شروع کرنے کے لیے مڑیں اور ہمارے نمائندوں سے گفتگو کریں۔",
     },
     "hi": {
         "idle_banner": "एक्सन से बातचीत के लिए आगे आएं!",
@@ -268,7 +268,12 @@ WHEEL_COLORS = [theme.brand_color(i / 7, BRAND_GRADIENT, loop=False) for i in ra
 # Timing (seconds)
 # ---------------------------------------------------------------------------
 FACE_DETECT_HOLD_TIME = 1.5
+# HANDOFF_TIMEOUT and HIDING_REVEAL_HOLD are hold times *after the relevant
+# line has actually finished playing* (see main.py's _SpeechWait) — not a
+# flat timer from state entry, which could cut a line off mid-sentence in a
+# slower language/voice before advancing.
 HANDOFF_TIMEOUT = 5.0
+HIDING_REVEAL_HOLD = 4.0
 WHEEL_SPIN_DURATION = 4.0
 
 # ---------------------------------------------------------------------------

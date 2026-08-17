@@ -88,11 +88,14 @@ except ImportError:
 # overridable via AXON_TTS_VOICE_EN / AXON_TTS_VOICE_AR for quick swaps
 # without touching code.
 EDGE_TTS_VOICES = {
-    "en": (os.environ.get("AXON_TTS_VOICE_EN", "en-US-GuyNeural"), "-6%", "-1Hz"),
-    "ur": ("ur-PK-AsadNeural", "-4%", "+0Hz"),
-    "hi": ("hi-IN-MadhurNeural", "-4%", "+0Hz"),
-    "ar": (os.environ.get("AXON_TTS_VOICE_AR", "ar-SA-HamedNeural"), "-4%", "+0Hz"),
-    "fr": ("fr-FR-HenriNeural", "-4%", "+0Hz"),
+    # AndrewNeural is Microsoft's newer, warmer US male voice — noticeably
+    # more natural/professional-sounding than the older GuyNeural, which
+    # reads flat and robotic for an announcer-style booth.
+    "en": (os.environ.get("AXON_TTS_VOICE_EN", "en-US-AndrewNeural"), "-9%", "+0Hz"),
+    "ur": ("ur-PK-AsadNeural", "-9%", "+0Hz"),
+    "hi": ("hi-IN-MadhurNeural", "-9%", "+0Hz"),
+    "ar": (os.environ.get("AXON_TTS_VOICE_AR", "ar-SA-HamedNeural"), "-9%", "+0Hz"),
+    "fr": ("fr-FR-HenriNeural", "-9%", "+0Hz"),
 }
 
 
@@ -257,7 +260,7 @@ class AudioService:
                 # engine instance is reused across different threads.
                 with self._tts_lock:
                     engine = pyttsx3.init()
-                    engine.setProperty("rate", 172)
+                    engine.setProperty("rate", 160)
                     engine.say(text)
                     engine.runAndWait()
                     engine.stop()
@@ -292,8 +295,12 @@ class AudioService:
                 self._active_channel.stop()
             self._active_channel = sound.play()
 
-    def _cache_path(self, lang_code, text):
-        digest = hashlib.sha1(f"{lang_code}|{text}".encode("utf-8")).hexdigest()[:16]
+    def _cache_path(self, lang_code, text, voice_key=""):
+        """`voice_key` (voice/rate/pitch) is part of the digest so tuning
+        the voice or speaking rate in EDGE_TTS_VOICES actually takes
+        effect — otherwise a phrase already cached at the old rate would
+        keep getting replayed forever regardless of code changes here."""
+        digest = hashlib.sha1(f"{lang_code}|{voice_key}|{text}".encode("utf-8")).hexdigest()[:16]
         return os.path.join(config.TEMP_DIR, "cache", f"tts_{lang_code}_{digest}.mp3")
 
     def _backend_headers(self):
@@ -366,7 +373,7 @@ class AudioService:
             import pygame
 
             voice, rate, pitch = EDGE_TTS_VOICES.get(lang_code, EDGE_TTS_VOICES["en"])
-            cache_path = self._cache_path(lang_code, text)
+            cache_path = self._cache_path(lang_code, text, voice_key=f"{voice}|{rate}|{pitch}")
 
             if not os.path.exists(cache_path):
                 os.makedirs(os.path.dirname(cache_path), exist_ok=True)
