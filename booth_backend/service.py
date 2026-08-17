@@ -29,7 +29,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 ELEVENLABS_MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
 ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 GROQ_STT_MODEL = os.environ.get("AXON_STT_MODEL", "whisper-large-v3-turbo")
-GROQ_LLM_MODEL = os.environ.get("AXON_LLM_MODEL", "llama-3.3-70b-versatile")
+GROQ_LLM_MODEL = os.environ.get("AXON_LLM_MODEL", "openai/gpt-oss-120b")
 OPENAI_STT_MODEL = os.environ.get("AXON_OPENAI_STT_MODEL", "whisper-1")
 
 booth_api = FastAPI(title="Axon Booth Backend")

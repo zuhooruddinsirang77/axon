@@ -49,7 +49,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_STT_MODEL = os.environ.get("AXON_STT_MODEL", "whisper-large-v3-turbo")
-GROQ_LLM_MODEL = os.environ.get("AXON_LLM_MODEL", "llama-3.3-70b-versatile")
+GROQ_LLM_MODEL = os.environ.get("AXON_LLM_MODEL", "openai/gpt-oss-120b")
 WHISPER_MODEL_SIZE = os.environ.get("AXON_WHISPER_MODEL", "small")
 
 # When set, the keyed/paid calls (ElevenLabs TTS, Groq/OpenAI STT fallback,
