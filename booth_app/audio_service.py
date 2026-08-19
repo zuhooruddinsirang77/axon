@@ -52,13 +52,14 @@ GROQ_STT_MODEL = os.environ.get("AXON_STT_MODEL", "whisper-large-v3-turbo")
 GROQ_LLM_MODEL = os.environ.get("AXON_LLM_MODEL", "openai/gpt-oss-120b")
 WHISPER_MODEL_SIZE = os.environ.get("AXON_WHISPER_MODEL", "small")
 
-# Below this peak sample amplitude (out of 32767), a capture is treated as
-# silence/no-speech and never reaches STT — see the comment at its use in
-# listen() for why. Tuned from observed data on this booth's mic array at
-# its default ~40% input volume: every hallucinated garbage transcript
-# ("Thank you.", "Thanks. We're doing it.") happened at peak <= 916; every
-# transcript that actually matched real speech happened at peak >= 1642.
-# 1000 sits between those two clusters.
+# A capture's rms must be at least this many times the ambient noise level
+# calibrated for that same listen() call to reach STT — see the comment at
+# its use in listen() for why this is relative rather than a fixed number.
+_MIN_SPEECH_TO_AMBIENT_RATIO = 2.5
+
+# Fallback-only: used instead of the ratio above if adjust_for_ambient_noise
+# didn't produce a usable energy_threshold. Below this peak sample amplitude
+# (out of 32767), a capture is treated as silence/no-speech.
 _MIN_SPEECH_PEAK = 1000
 
 # When set, the keyed/paid calls (ElevenLabs TTS, Groq/OpenAI STT fallback,
@@ -459,11 +460,13 @@ class AudioService:
 
         audio = None
         last_err = None
+        ambient_energy = None
         try:
             for attempt in range(2):
                 try:
                     with self._mic as source:
                         self._recognizer.adjust_for_ambient_noise(source, duration=0.3)
+                        ambient_energy = self._recognizer.energy_threshold
                         audio = self._recognizer.listen(
                             source, timeout=timeout, phrase_time_limit=phrase_time_limit
                         )
@@ -490,16 +493,31 @@ class AudioService:
             rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2))) if len(samples) else 0.0
             peak = int(np.max(np.abs(samples))) if len(samples) else 0
             print(f"[AudioService] Captured audio: {len(samples)} samples, "
-                  f"rms={rms:.1f} peak={peak} (out of 32767)")
+                  f"rms={rms:.1f} peak={peak} ambient_energy={ambient_energy} (out of 32767)")
             # Whisper hallucinates stock filler phrases ("Thank you.",
             # "Thanks for watching!") on near-silent input instead of
-            # returning empty — observed here at peak~186 on a clip with
-            # no real speech. A real word spoken at normal volume toward
-            # this mic reads in the thousands (peak~2400-2800 observed),
-            # so treat anything this quiet as "nothing said" up front
-            # rather than feeding it to STT and risking a hallucinated
-            # transcript that silently does the wrong thing.
-            if peak < _MIN_SPEECH_PEAK:
+            # returning empty. A *fixed* peak threshold doesn't work here
+            # because the OS mic input level directly changes what "quiet"
+            # and "real speech" look like in absolute terms — raising the
+            # input volume shifts noise and real speech up together, so a
+            # constant cutoff drifts out of calibration every time that
+            # slider moves (observed directly: real speech hallucinated at
+            # peak=1447 with the input level raised, well above a
+            # threshold tuned at a lower level). Gating on how much louder
+            # the capture is than the ambient noise *just* measured by
+            # adjust_for_ambient_noise (same call, same mic gain) is
+            # self-calibrating regardless of OS volume.
+            if ambient_energy and ambient_energy > 0:
+                ratio = rms / ambient_energy
+                if ratio < _MIN_SPEECH_TO_AMBIENT_RATIO:
+                    print(f"[AudioService] Captured audio too quiet relative to ambient "
+                          f"noise (rms={rms:.1f} is {ratio:.1f}x calibrated ambient "
+                          f"{ambient_energy:.1f}, need >= {_MIN_SPEECH_TO_AMBIENT_RATIO}x) "
+                          f"— treating as no speech.")
+                    return None
+            elif peak < _MIN_SPEECH_PEAK:
+                # No ambient baseline available — fall back to the old
+                # fixed cutoff rather than skip the gate entirely.
                 print(f"[AudioService] Captured audio too quiet (peak={peak} < "
                       f"{_MIN_SPEECH_PEAK}) — treating as no speech.")
                 return None
