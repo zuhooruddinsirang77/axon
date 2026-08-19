@@ -62,6 +62,16 @@ _MIN_SPEECH_TO_AMBIENT_RATIO = 2.5
 # (out of 32767), a capture is treated as silence/no-speech.
 _MIN_SPEECH_PEAK = 1000
 
+# Both the fixed peak and ambient-ratio gates above only ever measure
+# amplitude, and Whisper hallucinates stock filler phrases ("Thank you.",
+# "Kiitos.") on audio that's loud enough to pass either one but still isn't
+# actually intelligible speech — observed directly at 2.65x the calibrated
+# ambient level, well above the ratio gate. faster-whisper reports its own
+# per-segment confidence that a chunk contains no real speech at all
+# (no_speech_prob); segments at or above this are discarded before ever
+# reaching the app, catching exactly this case regardless of amplitude.
+_MAX_NO_SPEECH_PROB = 0.5
+
 # When set, the keyed/paid calls (ElevenLabs TTS, Groq/OpenAI STT fallback,
 # Groq intent classification) are proxied through this backend instead of
 # calling those providers directly, so the API keys never need to live on
@@ -558,7 +568,16 @@ class AudioService:
             segments, _info = self._whisper_model.transcribe(
                 wav_path, language=lang_code, beam_size=5, vad_filter=True
             )
-            return " ".join(seg.text.strip() for seg in segments).strip()
+            kept = []
+            for seg in segments:
+                text = seg.text.strip()
+                if seg.no_speech_prob >= _MAX_NO_SPEECH_PROB:
+                    print(f"[AudioService] Discarding likely-hallucinated segment "
+                          f"{text!r} (no_speech_prob={seg.no_speech_prob:.2f} >= "
+                          f"{_MAX_NO_SPEECH_PROB})")
+                    continue
+                kept.append(text)
+            return " ".join(kept).strip()
         except Exception as e:
             print(f"[AudioService] faster-whisper transcription failed: {e}")
             return ""
