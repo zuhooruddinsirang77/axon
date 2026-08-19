@@ -56,16 +56,29 @@ GAME_MYTH = "GAME_MYTH"
 GAME_WHEEL = "GAME_WHEEL"
 HUMAN_HANDOFF = "HUMAN_HANDOFF"
 
-# 1-indexed: _NUMBER_WORDS[0] is the spelled-out word for choice 1, etc.
-_NUMBER_WORDS = ["one", "two", "three", "four", "five", "six"]
+# 1-indexed: _NUMBER_WORDS[0] is the spelled-out word(s) for choice 1, etc.
+# "too" is included alongside "two" because it was observed in practice
+# (STT transcribed a spoken "two" as "too"). Deliberately not adding
+# "to"/"for"/"won" etc. as homophones for 1/2/4 despite being phonetically
+# plausible — they're common enough standalone words that they'd risk
+# false-matching on unrelated phrases (e.g. "to" inside "I want to see...").
+_NUMBER_WORDS = [
+    ["one"],
+    ["two", "too"],
+    ["three"],
+    ["four"],
+    ["five"],
+    ["six"],
+]
 
 
 def _text_has_choice(text, n):
     """True if `text` refers to 1-indexed choice `n` as either a literal
-    digit or its spelled-out English word — STT commonly transcribes a
-    short spoken number ("one") as the word rather than the numeral, which
-    a literal digit-substring check alone misses."""
-    return str(n) in text or _NUMBER_WORDS[n - 1] in text
+    digit or its spelled-out English word (or a common homophone of it) —
+    STT commonly transcribes a short spoken number as the word rather than
+    the numeral, and sometimes as a homophone of that word, neither of
+    which a literal digit-substring check alone catches."""
+    return str(n) in text or any(w in text for w in _NUMBER_WORDS[n - 1])
 
 
 def load_asset(filename, size=None, mode="contain"):
