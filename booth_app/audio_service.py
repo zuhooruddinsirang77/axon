@@ -446,6 +446,21 @@ class AudioService:
             print(f"[AudioService] Mic capture failed: {last_err}")
             return None
 
+        # Volume of what was actually captured — distinguishes "mic picked
+        # up nothing/too quiet" (low rms/peak here) from "captured fine but
+        # every STT engine returned empty" (rms/peak look normal but the
+        # final transcript below is still empty), which otherwise look
+        # identical from the outside (both just silently produce no result).
+        try:
+            import numpy as np
+            samples = np.frombuffer(audio.get_raw_data(), dtype=np.int16)
+            rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2))) if len(samples) else 0.0
+            peak = int(np.max(np.abs(samples))) if len(samples) else 0
+            print(f"[AudioService] Captured audio: {len(samples)} samples, "
+                  f"rms={rms:.1f} peak={peak} (out of 32767)")
+        except Exception:
+            pass
+
         os.makedirs(config.TEMP_DIR, exist_ok=True)
         wav_path = os.path.join(config.TEMP_DIR, f"stt_{int(time.time() * 1000)}.wav")
         with open(wav_path, "wb") as f:
@@ -461,6 +476,7 @@ class AudioService:
                 text = self._transcribe_backend(wav_path, "stt/openai")
             if not text and self.openai_client:
                 text = self._transcribe_openai(wav_path)
+            print(f"[AudioService] Transcript: {text!r}")
             return text or None
         finally:
             try:
