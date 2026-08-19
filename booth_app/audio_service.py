@@ -610,15 +610,17 @@ class AudioService:
         if not self.groq_client:
             return None
 
-        option_lines = "\n".join(f"- {label}: {desc}" for label, desc in options)
+        option_lines = "\n".join(f"{i}. {label}: {desc}" for i, (label, desc) in enumerate(options, 1))
         prompt = (
             "You are an intent classifier for a live interactive AI booth. "
             "A visitor just said or typed the following (it may be transcribed "
             "imperfectly, and may be in English, Urdu, Hindi, Arabic, or French):\n"
             f'"{text}"\n\n'
-            "Pick the single best-matching option below, or reply with exactly "
-            "NONE if nothing reasonably matches. Reply with ONLY the option "
-            "label and nothing else — no punctuation, no explanation.\n\n"
+            "Pick the single best-matching option below — the visitor may refer "
+            "to it by its label, its description, or its number (e.g. \"one\", "
+            "\"1\", or the number spoken in their own language) — or reply with "
+            "exactly NONE if nothing reasonably matches. Reply with ONLY the "
+            "option label and nothing else — no punctuation, no explanation.\n\n"
             f"{option_lines}"
         )
         try:

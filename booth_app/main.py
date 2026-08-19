@@ -56,6 +56,17 @@ GAME_MYTH = "GAME_MYTH"
 GAME_WHEEL = "GAME_WHEEL"
 HUMAN_HANDOFF = "HUMAN_HANDOFF"
 
+# 1-indexed: _NUMBER_WORDS[0] is the spelled-out word for choice 1, etc.
+_NUMBER_WORDS = ["one", "two", "three", "four", "five", "six"]
+
+
+def _text_has_choice(text, n):
+    """True if `text` refers to 1-indexed choice `n` as either a literal
+    digit or its spelled-out English word — STT commonly transcribes a
+    short spoken number ("one") as the word rather than the numeral, which
+    a literal digit-substring check alone misses."""
+    return str(n) in text or _NUMBER_WORDS[n - 1] in text
+
 
 def load_asset(filename, size=None, mode="contain"):
     """Load a PNG from assets/. `mode`='contain' fits within size (letterbox,
@@ -558,20 +569,20 @@ class BoothApp:
             return
 
         elif self.state == GAME_MENU:
-            if "1" in text or "hid" in text:
+            if _text_has_choice(text, 1) or "hid" in text:
                 self.goto(GAME_HIDING)
                 return
-            elif "2" in text or "myth" in text:
+            elif _text_has_choice(text, 2) or "myth" in text:
                 self.goto(GAME_MYTH)
                 return
-            elif "3" in text or "spin" in text or "wheel" in text:
+            elif _text_has_choice(text, 3) or "spin" in text or "wheel" in text:
                 self.goto(GAME_WHEEL)
                 return
 
         elif self.state == GAME_HIDING and self.hiding_choice is None:
-            for n in "123456":
-                if n in text:
-                    self._handle_number(int(n))
+            for n in range(1, 7):
+                if _text_has_choice(text, n):
+                    self._handle_number(n)
                     return
 
         elif self.state == GAME_WHEEL and not self.wheel_spinning:
