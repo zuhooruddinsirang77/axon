@@ -70,7 +70,17 @@ _MIN_SPEECH_PEAK = 1000
 # per-segment confidence that a chunk contains no real speech at all
 # (no_speech_prob); segments at or above this are discarded before ever
 # reaching the app, catching exactly this case regardless of amplitude.
+#
+# no_speech_prob alone isn't reliable either, though: tested directly
+# against a captured garbage transcript (meaningless Georgian-script
+# gibberish, clearly not real speech) that scored no_speech_prob=0.499 —
+# a hair under this cutoff, so it would've slipped through. Its
+# avg_logprob (-1.696) was unambiguous, though, vs. -0.865 for a real
+# "Thank you." hallucination. This mirrors OpenAI Whisper's own reference
+# CLI, which never relies on no_speech_prob alone either — combining both
+# signals catches what neither catches on its own.
 _MAX_NO_SPEECH_PROB = 0.5
+_MIN_AVG_LOGPROB = -1.0
 
 # When set, the keyed/paid calls (ElevenLabs TTS, Groq/OpenAI STT fallback,
 # Groq intent classification) are proxied through this backend instead of
@@ -571,10 +581,10 @@ class AudioService:
             kept = []
             for seg in segments:
                 text = seg.text.strip()
-                if seg.no_speech_prob >= _MAX_NO_SPEECH_PROB:
+                if seg.no_speech_prob >= _MAX_NO_SPEECH_PROB or seg.avg_logprob < _MIN_AVG_LOGPROB:
                     print(f"[AudioService] Discarding likely-hallucinated segment "
-                          f"{text!r} (no_speech_prob={seg.no_speech_prob:.2f} >= "
-                          f"{_MAX_NO_SPEECH_PROB})")
+                          f"{text!r} (no_speech_prob={seg.no_speech_prob:.2f}, "
+                          f"avg_logprob={seg.avg_logprob:.2f})")
                     continue
                 kept.append(text)
             return " ".join(kept).strip()
