@@ -276,6 +276,15 @@ HANDOFF_TIMEOUT = 5.0
 HIDING_REVEAL_HOLD = 4.0
 WHEEL_SPIN_DURATION = 4.0
 
+# Hold time after a prompt line *actually finishes playing* (same
+# _SpeechWait mechanism as above) before the mic opens to listen. Without
+# this, listen()'s ambient-noise calibration can run while the booth's own
+# TTS is still coming out of the speakers, measuring its own voice as
+# "ambient noise" and then rejecting the visitor's real reply as too quiet
+# relative to that inflated baseline. The delay also gives room echo/reverb
+# a moment to decay before the mic starts listening.
+MIC_OPEN_DELAY = 0.3
+
 # ---------------------------------------------------------------------------
 # OpenAI / ElevenLabs system prompt (for STT/TTS service wiring)
 # ---------------------------------------------------------------------------

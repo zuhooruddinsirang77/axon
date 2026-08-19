@@ -204,6 +204,7 @@ class BoothApp:
         self.hiding_choice = None
         self._hiding_reveal_wait = _SpeechWait()
         self._handoff_wait = _SpeechWait()
+        self._listen_gate = _SpeechWait()
         self.myth_answer = None
         self.wheel_spinning = False
         self.wheel_angle = 0.0
@@ -299,6 +300,7 @@ class BoothApp:
         self.state_entered_at = time.time()
         self._spoken_for_state = False
         self._listen_started = False
+        self._listen_gate.reset()
         self.pending_transcript = None
 
         # A new state means whatever was still playing/queued for the old
@@ -327,6 +329,10 @@ class BoothApp:
 
     def start_listening_once(self):
         if self._listen_started or not self.audio.voice_input_available:
+            return
+        # Don't open the mic while the just-triggered prompt line is still
+        # playing (or hasn't started yet) — see MIC_OPEN_DELAY.
+        if not self._listen_gate.ready(self.audio.is_speaking, config.MIC_OPEN_DELAY):
             return
         self._listen_started = True
         self.listening = True
