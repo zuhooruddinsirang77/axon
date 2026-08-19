@@ -144,6 +144,14 @@ class AudioService:
         # rest of the session after the first failure instead.
         self._elevenlabs_disabled = False
 
+        # Same reasoning as _elevenlabs_disabled above, for the backend TTS
+        # proxy: a down/erroring backend (e.g. its own ElevenLabs quota
+        # exhausted) fails identically on every call, so stop trying it
+        # for the rest of the session after the first failure rather than
+        # eating a network round-trip before every single line falls
+        # through to edge-tts anyway.
+        self._backend_tts_disabled = False
+
         # Tracks the single currently-playing voice line so a new speak()
         # call can cut off whatever's still playing instead of overlapping
         # it (pygame.mixer otherwise happily plays multiple sounds at once).
@@ -255,7 +263,8 @@ class AudioService:
         def _run():
             if _stale():
                 return
-            if BACKEND_URL and self._speak_backend(text, generation):
+            if (BACKEND_URL and not self._backend_tts_disabled
+                    and self._speak_backend(text, generation)):
                 return
             if _stale():
                 return
@@ -347,6 +356,9 @@ class AudioService:
             return True
         except Exception as e:
             print(f"[AudioService] Backend TTS failed, falling back: {e}")
+            self._backend_tts_disabled = True
+            print("[AudioService] Disabling backend TTS for the rest of this "
+                  "session (edge-tts will be used instead).")
             return False
 
     def _speak_elevenlabs(self, text, generation=None):
