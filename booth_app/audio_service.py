@@ -54,8 +54,12 @@ WHISPER_MODEL_SIZE = os.environ.get("AXON_WHISPER_MODEL", "small")
 
 # Below this peak sample amplitude (out of 32767), a capture is treated as
 # silence/no-speech and never reaches STT — see the comment at its use in
-# listen() for why.
-_MIN_SPEECH_PEAK = 300
+# listen() for why. Tuned from observed data on this booth's mic array at
+# its default ~40% input volume: every hallucinated garbage transcript
+# ("Thank you.", "Thanks. We're doing it.") happened at peak <= 916; every
+# transcript that actually matched real speech happened at peak >= 1642.
+# 1000 sits between those two clusters.
+_MIN_SPEECH_PEAK = 1000
 
 # When set, the keyed/paid calls (ElevenLabs TTS, Groq/OpenAI STT fallback,
 # Groq intent classification) are proxied through this backend instead of
