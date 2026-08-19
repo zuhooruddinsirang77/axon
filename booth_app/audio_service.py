@@ -52,6 +52,11 @@ GROQ_STT_MODEL = os.environ.get("AXON_STT_MODEL", "whisper-large-v3-turbo")
 GROQ_LLM_MODEL = os.environ.get("AXON_LLM_MODEL", "openai/gpt-oss-120b")
 WHISPER_MODEL_SIZE = os.environ.get("AXON_WHISPER_MODEL", "small")
 
+# Below this peak sample amplitude (out of 32767), a capture is treated as
+# silence/no-speech and never reaches STT — see the comment at its use in
+# listen() for why.
+_MIN_SPEECH_PEAK = 300
+
 # When set, the keyed/paid calls (ElevenLabs TTS, Groq/OpenAI STT fallback,
 # Groq intent classification) are proxied through this backend instead of
 # calling those providers directly, so the API keys never need to live on
@@ -458,6 +463,18 @@ class AudioService:
             peak = int(np.max(np.abs(samples))) if len(samples) else 0
             print(f"[AudioService] Captured audio: {len(samples)} samples, "
                   f"rms={rms:.1f} peak={peak} (out of 32767)")
+            # Whisper hallucinates stock filler phrases ("Thank you.",
+            # "Thanks for watching!") on near-silent input instead of
+            # returning empty — observed here at peak~186 on a clip with
+            # no real speech. A real word spoken at normal volume toward
+            # this mic reads in the thousands (peak~2400-2800 observed),
+            # so treat anything this quiet as "nothing said" up front
+            # rather than feeding it to STT and risking a hallucinated
+            # transcript that silently does the wrong thing.
+            if peak < _MIN_SPEECH_PEAK:
+                print(f"[AudioService] Captured audio too quiet (peak={peak} < "
+                      f"{_MIN_SPEECH_PEAK}) — treating as no speech.")
+                return None
         except Exception:
             pass
 
