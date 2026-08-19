@@ -307,8 +307,16 @@ class BoothApp:
         self._listen_started = True
         self.listening = True
 
+        # Captured so a transcript that arrives after the app has already
+        # moved to a different state (e.g. this listen() was still blocked
+        # waiting for speech when ESC/a timeout advanced things) doesn't
+        # get misapplied to whatever state happens to be current when it
+        # finally lands — same guard pending_llm_intent already uses below.
+        generation_at_listen = self._speech_generation
+        state_at_listen = self.state
+
         def _cb(transcript):
-            self.pending_transcript = transcript or ""
+            self.pending_transcript = (transcript or "", generation_at_listen, state_at_listen)
             self.listening = False
 
         # Language isn't chosen yet during LANG_SELECT, so let STT
@@ -459,8 +467,12 @@ class BoothApp:
             self._update_handoff()
 
         if self.pending_transcript:
-            self._process_transcript(self.pending_transcript)
+            text, generation, state = self.pending_transcript
             self.pending_transcript = None
+            # Same staleness guard as pending_llm_intent below — only act
+            # if the app is still in the state this transcript was heard for.
+            if text and generation == self._speech_generation and state == self.state:
+                self._process_transcript(text)
 
         if self.pending_llm_intent:
             generation, state, label = self.pending_llm_intent

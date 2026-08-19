@@ -124,6 +124,15 @@ class AudioService:
         self._recognizer = sr.Recognizer() if _SR_AVAILABLE else None
         self._mic = self._init_microphone() if _SR_AVAILABLE else None
 
+        # Guards the mic context manager. main.py can trigger a new
+        # listen_async() (e.g. re-entering LANG_SELECT after ESC) while a
+        # previous listen() is still blocked inside `with self._mic as
+        # source:` waiting for speech — sr.Microphone raises "already
+        # inside a context manager" if entered twice concurrently, which
+        # otherwise permanently breaks that listen() call and looked like
+        # voice input just silently dying.
+        self._mic_lock = threading.Lock()
+
         # ElevenLabs quota/plan errors (e.g. free-plan 402s) are the same on
         # every call, so retrying per-utterance just adds a network
         # round-trip of latency to every single line. Disable it for the
@@ -411,20 +420,27 @@ class AudioService:
         if not (self._recognizer and self._mic):
             return None
 
+        if not self._mic_lock.acquire(timeout=0.1):
+            print("[AudioService] Mic already in use by another listen() call — skipping.")
+            return None
+
         audio = None
         last_err = None
-        for attempt in range(2):
-            try:
-                with self._mic as source:
-                    self._recognizer.adjust_for_ambient_noise(source, duration=0.3)
-                    audio = self._recognizer.listen(
-                        source, timeout=timeout, phrase_time_limit=phrase_time_limit
-                    )
-                break
-            except Exception as e:
-                last_err = e
-                if attempt == 0:
-                    time.sleep(0.3)  # transient device-busy hiccup — retry once
+        try:
+            for attempt in range(2):
+                try:
+                    with self._mic as source:
+                        self._recognizer.adjust_for_ambient_noise(source, duration=0.3)
+                        audio = self._recognizer.listen(
+                            source, timeout=timeout, phrase_time_limit=phrase_time_limit
+                        )
+                    break
+                except Exception as e:
+                    last_err = e
+                    if attempt == 0:
+                        time.sleep(0.3)  # transient device-busy hiccup — retry once
+        finally:
+            self._mic_lock.release()
 
         if audio is None:
             print(f"[AudioService] Mic capture failed: {last_err}")
@@ -579,7 +595,6 @@ class AudioService:
                 temperature=0,
                 max_tokens=150,
                 reasoning_effort="low",
-                include_reasoning=False,
             )
             label = resp.choices[0].message.content.strip().strip('"').strip("'").lower()
             valid_labels = {l.lower() for l, _ in options}

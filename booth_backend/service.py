@@ -150,7 +150,6 @@ def classify_intent(req: IntentRequest, x_booth_key: Optional[str] = Header(None
             temperature=0,
             max_tokens=150,
             reasoning_effort="low",
-            include_reasoning=False,
         )
         label = resp.choices[0].message.content.strip().strip('"').strip("'").lower()
         valid_labels = {l.lower() for l, _ in req.options}
