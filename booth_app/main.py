@@ -188,6 +188,7 @@ class BoothApp:
         self.pending_transcript = None
         self.listening = False
         self.pending_llm_intent = None
+        self._llm_intent_pending = False
         self._speech_generation = 0
 
         # Type-instead-of-speak fallback — same phrase parsing as a real
@@ -511,11 +512,24 @@ class BoothApp:
         if self.pending_llm_intent:
             generation, state, label = self.pending_llm_intent
             self.pending_llm_intent = None
+            self._llm_intent_pending = False
             # Only act if the app is still where the classification was
             # requested for — otherwise it's a stale answer to a question
             # that's no longer being asked.
             if label and generation == self._speech_generation and state == self.state:
                 self._apply_intent(state, label)
+
+        # A listen() call just finished but nothing usable came of it (no
+        # speech heard, or heard speech that matched neither a literal
+        # keyword nor an LLM intent) and the state didn't change as a
+        # result — without this, voice input would go dead for the rest of
+        # this state (start_listening_once() only ever fires once per state
+        # entry) and the visitor would be stuck needing the keypad. Retry
+        # automatically instead. goto() already resets _listen_started for
+        # any state change, so this is a no-op whenever one just happened.
+        if self._listen_started and not self.listening and not self._llm_intent_pending:
+            self._listen_started = False
+            self._listen_gate.reset()
 
     def _update_idle(self):
         # Speak the invitation immediately on entering idle — on app start
@@ -660,6 +674,7 @@ class BoothApp:
             return
 
         state, generation = self.state, self._speech_generation
+        self._llm_intent_pending = True
 
         def _run():
             label = self.audio.classify_intent(text, options)
