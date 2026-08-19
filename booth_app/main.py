@@ -403,6 +403,8 @@ class BoothApp:
             return self.hiding_choice is None
         if self.state == GAME_WHEEL:
             return not self.wheel_spinning
+        if self.state == GAME_MYTH:
+            return self.myth_answer is None
         return False
 
     def _handle_text_input_key(self, event):
@@ -485,6 +487,8 @@ class BoothApp:
             self._update_game_hiding()
         elif self.state == GAME_MYTH:
             self.speak_once("myth_question")
+            if self.myth_answer is None:
+                self.start_listening_once()
         elif self.state == GAME_WHEEL:
             self._update_game_wheel(dt)
         elif self.state == HUMAN_HANDOFF:
@@ -598,6 +602,17 @@ class BoothApp:
                     self._handle_number(n)
                     return
 
+        elif self.state == GAME_MYTH and self.myth_answer is None:
+            # "yes"/"no" deliberately not matched here as bare substrings —
+            # "no" alone would false-positive on "know", "not", etc. The
+            # LLM fallback below handles that phrasing safely instead.
+            if "true" in text:
+                self._answer_myth(True)
+                return
+            elif "false" in text:
+                self._answer_myth(False)
+                return
+
         elif self.state == GAME_WHEEL and not self.wheel_spinning:
             if "spin" in text:
                 self._start_wheel_spin()
@@ -624,6 +639,11 @@ class BoothApp:
             return [(str(i + 1), b["name"]) for i, b in enumerate(config.BUILDINGS)]
         if state == GAME_WHEEL:
             return [("spin", "Spin the wheel / I'm ready / give me a prize")]
+        if state == GAME_MYTH:
+            return [
+                ("true", "The visitor thinks the statement is true / agrees / says yes"),
+                ("false", "The visitor thinks the statement is false / disagrees / says no"),
+            ]
         return None
 
     def _try_llm_intent(self, text):
@@ -655,6 +675,8 @@ class BoothApp:
             self._handle_number(int(label))
         elif state == GAME_WHEEL and not self.wheel_spinning and label == "spin":
             self._start_wheel_spin()
+        elif state == GAME_MYTH and self.myth_answer is None and label in ("true", "false"):
+            self._answer_myth(label == "true")
 
     # ------------------------------------------------------------------
     # Rendering
@@ -986,7 +1008,7 @@ class BoothApp:
         hint_rect = pygame.Rect(0, 0, 480, 60)
         hint_rect.center = (config.WIDTH // 2, 740)
         theme.draw_pill(self.screen, hint_rect, (30, 34, 54), alpha=210, border=config.CARD_BORDER_COLOR)
-        hint = self.font_subtitle.render("Press T for True  •  F for False", True, config.DIM_TEXT_COLOR)
+        hint = self.font_subtitle.render("Say or press T for True  •  F for False", True, config.DIM_TEXT_COLOR)
         self.screen.blit(hint, hint.get_rect(center=hint_rect.center))
 
         if self.myth_answer is not None:
@@ -1005,10 +1027,10 @@ class BoothApp:
         self._draw_wheel(center=(config.WIDTH // 2, 600), radius=280, angle_deg=self.wheel_angle)
 
         if not self.wheel_spinning and self.wheel_result_index is None:
-            hint_rect = pygame.Rect(0, 0, 320, 60)
+            hint_rect = pygame.Rect(0, 0, 460, 60)
             hint_rect.center = (config.WIDTH // 2, 965)
             theme.draw_pill(self.screen, hint_rect, (30, 34, 54), alpha=210, border=config.CARD_BORDER_COLOR)
-            hint = self.font_subtitle.render("Press S to spin!", True, config.DIM_TEXT_COLOR)
+            hint = self.font_subtitle.render("Say \"Spin the wheel\" or press S", True, config.DIM_TEXT_COLOR)
             self.screen.blit(hint, hint.get_rect(center=hint_rect.center))
         elif not self.wheel_spinning and self.wheel_result_index is not None:
             prize = config.WHEEL_PRIZES[self.wheel_result_index]
