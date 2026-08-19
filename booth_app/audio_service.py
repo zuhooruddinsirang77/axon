@@ -127,6 +127,18 @@ class AudioService:
 
         self._tts_lock = threading.Lock()
         self._recognizer = sr.Recognizer() if _SR_AVAILABLE else None
+        if self._recognizer is not None:
+            # Default pause_threshold (0.8s of sub-threshold audio to
+            # consider a phrase finished) plus phrase_time_limit=6 in
+            # listen() below were observed to make every capture run to
+            # nearly the full 6s regardless of how short the utterance
+            # actually was (e.g. a single word still captured ~6.5s) on
+            # this laptop's mic array — its background noise floor
+            # apparently doesn't drop cleanly below the calibrated energy
+            # threshold between words. Tightening this doesn't fix that
+            # root cause but shortens the perceived lag for the common
+            # case where it does work.
+            self._recognizer.pause_threshold = 0.5
         self._mic = self._init_microphone() if _SR_AVAILABLE else None
 
         # Guards the mic context manager. main.py can trigger a new
@@ -425,7 +437,7 @@ class AudioService:
     # ------------------------------------------------------------------
     # Speech-to-Text
     # ------------------------------------------------------------------
-    def listen(self, timeout=6, phrase_time_limit=6, lang_code=None):
+    def listen(self, timeout=6, phrase_time_limit=4, lang_code=None):
         """
         Blocking mic capture + transcription.
         `lang_code` (e.g. "en", "ur") biases decoding to that language;
@@ -565,7 +577,7 @@ class AudioService:
             print(f"[AudioService] OpenAI Whisper transcription failed: {e}")
             return ""
 
-    def listen_async(self, callback, timeout=6, phrase_time_limit=6, lang_code=None):
+    def listen_async(self, callback, timeout=6, phrase_time_limit=4, lang_code=None):
         """Non-blocking variant of listen(); calls callback(transcript_or_None)."""
         def _run():
             result = self.listen(
